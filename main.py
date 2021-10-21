@@ -28,7 +28,7 @@ def is_explicit(track):
             if 'audio/mp3' in file.mime:
                 audio = ID3(location)
                 lyrics_tag = audio.getall('USLT')
-                if len(lyrics_tag) > 0:
+                if isinstance(lyrics_tag, list):
                     lyrics = lyrics_tag[0].text
                 else:
                     lyrics = lyrics_tag.text
