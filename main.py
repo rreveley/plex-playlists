@@ -484,7 +484,7 @@ if __name__ == '__main__':
     rate_albums()
     rate_artists()
     best_unrated()
-    #best_unrated(clean=True)
+    best_unrated(clean=True)
 
     daily_listen()
 
