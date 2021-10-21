@@ -386,9 +386,9 @@ def write_tags():
 
 
 def munge_location(location):
-    location = location.replace('/volume1/media/music-beets', 'Y:')
-    location = location.replace('/volume1/media/music', 'Z:')
-    location = location.replace('/', '\\ ')
+    #location = location.replace('/volume1/media/music-beets', 'Y:')
+    #location = location.replace('/volume1/media/music', 'Z:')
+    #location = location.replace('/', '\\ ')
     return location
 
 
@@ -474,11 +474,11 @@ if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
 
-    clear_moods(plex.library.section('Music-beets'), 'Selected Unrated')
-    clear_moods(plex.library.section('Music-beets'), 'Selected Unrated (Clean)')
+    #clear_moods(plex.library.section('Music-beets'), 'Selected Unrated')
+    #clear_moods(plex.library.section('Music-beets'), 'Selected Unrated (Clean)')
 
-    clear_moods(plex.library.section('Music'), 'Selected Unrated')
-    clear_moods(plex.library.section('Music'), 'Selected Unrated (Clean)')
+    #clear_moods(plex.library.section('Music'), 'Selected Unrated')
+    #clear_moods(plex.library.section('Music'), 'Selected Unrated (Clean)')
 
 
     rate_albums()
