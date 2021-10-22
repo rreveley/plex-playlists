@@ -28,8 +28,9 @@ def is_explicit(track):
             if 'audio/mp3' in file.mime:
                 audio = ID3(location)
                 lyrics_tag = audio.getall('USLT')
-                if isinstance(lyrics_tag, list) and len(lyrics_tag) > 0:
-                    lyrics = lyrics_tag[0].text
+                if isinstance(lyrics_tag, list):
+                    if len(lyrics_tag) > 0:
+                        lyrics = lyrics_tag[0].text
                 else:
                     lyrics = lyrics_tag.text
         if location.endswith('.flac'):
