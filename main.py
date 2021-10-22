@@ -63,6 +63,7 @@ def is_explicit(track):
 
 @retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
 def rate_albums():
+    print('Rating albums')
     results = music.search(libtype='album', filters={'track.userRating>>': 0})
     print(music.listFields())
     for album in results:
@@ -81,6 +82,7 @@ def rate_albums():
 
 @retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
 def rate_artists():
+    print('Rating artists')
     results = music.search(libtype='artist', filters={'track.userRating>>': 0})
 
     for artist in results:
@@ -146,7 +148,7 @@ def daily_listen(clean=False):
     results = music.search(libtype='track', filters={'track.userRating': 8}, sort='viewCount:asc')
     limit = len(tracks)+25
     for track in results:
-        if is_music(track)  and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '4*',track.grandparentTitle,  track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
@@ -155,7 +157,7 @@ def daily_listen(clean=False):
     results = music.search(libtype='track', filters={'track.userRating': 6}, sort='viewCount:asc')
     limit = len(tracks)+10
     for track in results:
-        if is_music(track)  and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '3*',track.grandparentTitle, track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
@@ -164,7 +166,7 @@ def daily_listen(clean=False):
     limit = len(tracks)+5
     results = music.search(libtype='track', filters={'artist.userRating>>': 8}, sort='viewCount:asc')
     for track in results:
-        if is_music(track)  and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '5* Artist', track.grandparentTitle, track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
@@ -173,7 +175,7 @@ def daily_listen(clean=False):
     limit = len(tracks)+5
     results = music.search(libtype='track', filters={'artist.userRating>>=': 6, 'artist.userRating<<': 8}, sort='viewCount:asc')
     for track in results:
-        if is_music(track)  and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '4* Artist', track.grandparentTitle, track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
