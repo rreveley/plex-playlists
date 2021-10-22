@@ -1,10 +1,8 @@
 import plexapi.utils
 from tenacity import wait_exponential, retry, stop_after_attempt
 from plexapi.server import PlexServer
-import random
 import mutagen
 from mutagen.id3 import ID3, COMM, POPM
-from mutagen.mp3 import MP3
 from mutagen import MutagenError
 from tqdm import tqdm
 
