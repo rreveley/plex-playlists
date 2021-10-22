@@ -456,7 +456,7 @@ def check_lyrics():
             else:
                 unknown.append(track)
     adjust_playlist(music, 'Explicit Tracks', explicit)
-    adjust_playlist(music, 'Clean Tracks', clean)
+    #adjust_playlist(music, 'Clean Tracks', clean)
     adjust_playlist(music, 'No Lyrics Tracks', unknown)
 
 def clear_moods(library, title):
