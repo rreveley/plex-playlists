@@ -118,7 +118,7 @@ def contains_artist(list, artist):
             count += 1
     return count
 
-def daily_listen():
+def daily_listen(clean=False):
 
     # 5* songs 100 least play count
     # 4* songs 50 least play count
@@ -136,7 +136,7 @@ def daily_listen():
     limit = len(tracks)+50
     results = music.search(libtype='track', filters={'track.userRating': 10}, sort='viewCount:asc')
     for track in results:
-        if is_music(track) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '5*', track.grandparentTitle, track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
@@ -146,7 +146,7 @@ def daily_listen():
     results = music.search(libtype='track', filters={'track.userRating': 8}, sort='viewCount:asc')
     limit = len(tracks)+25
     for track in results:
-        if is_music(track) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track)  and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '4*',track.grandparentTitle,  track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
@@ -155,7 +155,7 @@ def daily_listen():
     results = music.search(libtype='track', filters={'track.userRating': 6}, sort='viewCount:asc')
     limit = len(tracks)+10
     for track in results:
-        if is_music(track) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track)  and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '3*',track.grandparentTitle, track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
@@ -164,7 +164,7 @@ def daily_listen():
     limit = len(tracks)+5
     results = music.search(libtype='track', filters={'artist.userRating>>': 8}, sort='viewCount:asc')
     for track in results:
-        if is_music(track) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track)  and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '5* Artist', track.grandparentTitle, track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
@@ -173,14 +173,16 @@ def daily_listen():
     limit = len(tracks)+5
     results = music.search(libtype='track', filters={'artist.userRating>>=': 6, 'artist.userRating<<': 8}, sort='viewCount:asc')
     for track in results:
-        if is_music(track) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
+        if is_music(track)  and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(len(tracks), '4* Artist', track.grandparentTitle, track, track.viewCount)
             tracks.append(track)
             if len(tracks) >= limit:
                 break
 
-
-    adjust_playlist(music, 'Daily Listen', tracks)
+    if clean:
+        adjust_playlist(music, 'Daily Listen (Clean)', tracks)
+    else:
+        adjust_playlist(music, 'Daily Listen', tracks)
 
 
 def one_track_unrated_artist():
@@ -483,9 +485,9 @@ if __name__ == '__main__':
     rate_albums()
     rate_artists()
     best_unrated()
-    best_unrated(clean=True)
 
     daily_listen()
+    daily_listen(clean=True)
 
     write_tags()
     read_tags()
