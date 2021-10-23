@@ -65,7 +65,6 @@ def is_explicit(track):
 def rate_albums():
     print('Rating albums')
     results = music.search(libtype='album', filters={'track.userRating>>': 0})
-    print(music.listFields())
     for album in results:
         track_results = music.search(libtype='track', filters={'album.id': album.ratingKey, 'track.userRating>>': 0})
         total = 0
@@ -266,7 +265,6 @@ def best_unrated(clean=False):
     best_artists = []
     for artist in results:
         if len(best_artists) < 20:
-
             if artist.title != 'Various Artists':
                 unrated_tracks_results = music.search(libtype='track', filters={'artist.id': artist.ratingKey, 'track.userRating': -1})
                 print('Best Artist:', artist.title, 'Rating', artist.userRating, 'Views', artist.viewCount, 'Unrated Tracks', len(unrated_tracks_results))
