@@ -434,6 +434,7 @@ def read_tags():
 
 
 def check_lyrics():
+    print('Checking lyrics')
     music = plex.library.section('Music-beets')
     explicit = []
     clean = []
@@ -470,16 +471,16 @@ def clear_moods(library, title):
 if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
-    check_lyrics()
 
-    daily_listen(clean=True)
+    for lib in ('Music', 'Music-beets'):
 
-    #clear_moods(plex.library.section('Music-beets'), 'Selected Unrated')
-    #clear_moods(plex.library.section('Music-beets'), 'Selected Unrated (Clean)')
-
-    #clear_moods(plex.library.section('Music'), 'Selected Unrated')
-    #clear_moods(plex.library.section('Music'), 'Selected Unrated (Clean)')
-
+        clear_moods(plex.library.section(lib), 'Selected Unrated')
+        clear_moods(plex.library.section(lib), 'Selected Unrated (Clean)')
+        clear_moods(plex.library.section(lib), 'Clean Tracks')
+        clear_moods(plex.library.section(lib), 'Explicit Tracks')
+        clear_moods(plex.library.section(lib), 'No Lyrics Tracks')
+        clear_moods(plex.library.section(lib), 'Daily Listen')
+        clear_moods(plex.library.section(lib), 'Daily Listen (Clean)')
 
     rate_albums()
     rate_artists()

@@ -20,8 +20,6 @@ with codecs.open(data_file, 'w', encoding='utf-8') as output:
     output.write('is_offensive,text\r\n')
 count=0
 for location in glob.iglob(root_dir + '**/*.flac', recursive=True):
-    if count > 10000:
-        break
     count += 1
     with codecs.open(data_file, 'a', encoding='utf-8') as output:
         lyrics = ''
