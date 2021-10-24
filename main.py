@@ -15,6 +15,13 @@ badwords=['nigga', 'fuck', 'shit', 'bitch']
 token = 'ZfxxHwnW2pyd6egLfzPi'
 baseurl = 'http://192.168.1.147:32400'
 
+def is_clean(track):
+    if 'Explicit' in [mood.tag for mood in track.moods]:
+        return False
+    if 'No Lyrics' in [mood.tag for mood in track.moods]:
+        return False
+
+    return True
 
 def is_explicit(track):
     location = munge_location(track.locations[0])
@@ -239,17 +246,6 @@ def adjust_playlist(library, title, tracklist):
             track.reload()
 
 
-def is_clean(track):
-    library = plex.library.section('Music-beets')
-    for playlist in library.playlists():
-        if playlist.title == 'Explicit Tracks':
-            exists = True
-            break
-
-    if track not in playlist.items():
-        return True
-    return False
-
 
 def is_music(track):
     for mood in track.moods:
@@ -457,9 +453,9 @@ def check_lyrics():
                 clean.append(track)
             else:
                 unknown.append(track)
-    adjust_playlist(music, 'Explicit Tracks', explicit)
+    adjust_playlist(music, 'Explicit', explicit)
     #adjust_playlist(music, 'Clean Tracks', clean)
-    adjust_playlist(music, 'No Lyrics Tracks', unknown)
+    adjust_playlist(music, 'No Lyrics', unknown)
 
 def clear_moods(library, title):
     tracks = library.search(libtype='track', filters={'track.mood': title})
@@ -474,6 +470,9 @@ def clear_moods(library, title):
 if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
+    check_lyrics()
+
+    daily_listen(clean=True)
 
     #clear_moods(plex.library.section('Music-beets'), 'Selected Unrated')
     #clear_moods(plex.library.section('Music-beets'), 'Selected Unrated (Clean)')
