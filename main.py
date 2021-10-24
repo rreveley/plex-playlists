@@ -472,15 +472,14 @@ if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
 
-    for lib in ('Music', 'Music-beets'):
-
-        clear_moods(plex.library.section(lib), 'Selected Unrated')
-        clear_moods(plex.library.section(lib), 'Selected Unrated (Clean)')
-        clear_moods(plex.library.section(lib), 'Clean Tracks')
-        clear_moods(plex.library.section(lib), 'Explicit Tracks')
-        clear_moods(plex.library.section(lib), 'No Lyrics Tracks')
-        clear_moods(plex.library.section(lib), 'Daily Listen')
-        clear_moods(plex.library.section(lib), 'Daily Listen (Clean)')
+    # for lib in ('Music', 'Music-beets'):
+    #     clear_moods(plex.library.section(lib), 'Selected Unrated')
+    #     clear_moods(plex.library.section(lib), 'Selected Unrated (Clean)')
+    #     clear_moods(plex.library.section(lib), 'Clean Tracks')
+    #     clear_moods(plex.library.section(lib), 'Explicit Tracks')
+    #     clear_moods(plex.library.section(lib), 'No Lyrics Tracks')
+    #     clear_moods(plex.library.section(lib), 'Daily Listen')
+    #     clear_moods(plex.library.section(lib), 'Daily Listen (Clean)')
 
     rate_albums()
     rate_artists()
