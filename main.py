@@ -227,7 +227,7 @@ def adjust_playlist(library, title, tracklist):
             exists = True
 
     #select all items with that mood
-    tracks = library.search(libtype='track', filters={'track.mood': title}, container_size=1000)
+    tracks = library.search(libtype='track', filters={'track.mood': title})
     for track in tracks:
         if track not in tracklist:
             existing_moods = [mood.tag for mood in track.moods]
@@ -472,19 +472,10 @@ if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
 
-    # for lib in ('Music', 'Music-beets'):
-    #     clear_moods(plex.library.section(lib), 'Selected Unrated')
-    #     clear_moods(plex.library.section(lib), 'Selected Unrated (Clean)')
-    #     clear_moods(plex.library.section(lib), 'Clean Tracks')
-    #     clear_moods(plex.library.section(lib), 'Explicit Tracks')
-    #     clear_moods(plex.library.section(lib), 'No Lyrics Tracks')
-    #     clear_moods(plex.library.section(lib), 'Daily Listen')
-    #     clear_moods(plex.library.section(lib), 'Daily Listen (Clean)')
-
     rate_albums()
     rate_artists()
-    best_unrated()
 
+    best_unrated()
     daily_listen()
     daily_listen(clean=True)
 
