@@ -7,6 +7,7 @@ import spacy
 from spacy_fastlang import LanguageDetector
 
 root_dir = 'Y:\\'
+data_file_full = 'data/lyrics_data_full.csv'
 data_file = 'data/lyrics_data.csv'
 
 badwords=['nigga', 'fuck', 'shit', 'bitch']
@@ -16,12 +17,12 @@ nlp = spacy.load('en_core_web_sm')
 nlp.add_pipe('language_detector')
 
 
-with codecs.open(data_file, 'w', encoding='utf-8') as output:
+with codecs.open(data_file_full, 'w', encoding='utf-8') as output:
     output.write('is_offensive,text\r\n')
 count=0
 for location in glob.iglob(root_dir + '**/*.flac', recursive=True):
     count += 1
-    with codecs.open(data_file, 'a', encoding='utf-8') as output:
+    with codecs.open(data_file_full, 'a', encoding='utf-8') as output:
         lyrics = ''
         #print(location)
         try:
@@ -63,5 +64,15 @@ for location in glob.iglob(root_dir + '**/*.flac', recursive=True):
                     output.write(f'{score},\"{line}\"\r\n')
         else:
             print(doc._.language, location)
+
+#dedup csv
+
+lines_seen = set() # holds lines already seen
+outfile = open(data_file, "w")
+for line in open(data_file_full, "r"):
+    if line not in lines_seen: # not a duplicate
+        outfile.write(line)
+        lines_seen.add(line)
+outfile.close()
 
 train_model.train()

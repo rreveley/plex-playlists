@@ -275,7 +275,7 @@ def best_unrated(clean=False):
     #now need 4 best songs from the 10 best artists
     list = []
     for artist in best_artists:
-        print(artist.title, artist.userRating, artist.viewCount)
+        print(artist.title, artist.userRating, 'Artist ViewCount:', artist.viewCount)
 
         #first get tracks from least heard rated albums,that way we rotate the albums day to day
         unrated_tracks_results = music.search(libtype='track', filters={'artist.id': artist.ratingKey, 'track.userRating': -1}, sort='album.viewCount:asc')
