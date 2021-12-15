@@ -1,4 +1,5 @@
 import plexapi.utils
+import requests
 from tenacity import wait_exponential, retry, stop_after_attempt
 from plexapi.server import PlexServer
 import mutagen
@@ -466,14 +467,130 @@ def clear_moods(library, title):
             data = plexapi.utils.tag_helper("mood", [title], remove=True)
             track.edit(**data)
             track.reload()
+@retry(wait=wait_exponential(multiplier=2, min=2, max=60), stop=stop_after_attempt(10))
+def best_georgia(clean=False):
+    list = []
+
+    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia'})
+
+    print('Specifically requested tracks')
+    for track in tracks:
+        if is_music(track) and (not clean or is_clean(track)) and contains_track(list, track.title) == 0 and contains_album(list, track.parentTitle) < 1:
+            print('\t', track.grandparentTitle, track.title)
+            list.append(track)
+
+    #collect all artists from this list
+    artists_str = set()
+    for track in tracks:
+        artists_str.add(track.grandparentTitle)
+
+    artists = []
+    for artist_str in artists_str:
+        artist = music.search(libtype='artist', filters={'artist.title==': artist_str})
+        artists.append(artist)
+
+    #least heard of most popular tracks by that artist
+    print('Least Heard Popular Tracks by Known Artists')
+    for artist_name in artists:
+        limit = len(list) + 1
+        for artist in artist_name:
+            min_pop = None
+            tracks = get_popular(artist)
+            for track in tracks:
+                if min_pop is None or track.viewCount < min_pop.viewCount:
+                    min_pop = track
+            print('\t', artist.title, track.title)
+            if min_pop is not None:
+                list.append(min_pop)
+
+
+
+    #least heard track of 4 or 5 rating by that artist
+    print('High Rated Tracks by Known Artists')
+    for artist_name in artists:
+        limit = len(list) + 4
+        for artist in artist_name:
+            results = music.search(libtype='track',filters={'artist.id': artist.ratingKey, 'track.userRating>>=': 3}, sort='track.viewCount:asc')
+
+            for track in results:
+                if track is not None:
+                    if is_music(track):
+                        if (not clean or is_clean(track)):
+                            if contains_track(list, track.title) == 0:
+                                if contains_album(list, track.parentTitle) < 1:
+                                    if is_music(track) and (not clean or is_clean(track)) and contains_track(list, track.title) == 0 and contains_album(list, track.parentTitle) < 1:
+                                        list.append(track)
+                                        print('\t', track.grandparentTitle, track.title)
+                                    if len(list) >= limit:
+                                        break
+
+    #plus one track from a similar artist
+    print('Tracks by similar artists')
+    for artist_name in artists:
+        for artist in artist_name:
+            similar_artists = []
+            for similar in artist.similar:
+                similar_artist_results = music.search(libtype='artist', filters={'artist.title==': similar.tag})
+                for similar_artist in similar_artist_results:
+                    similar_artists.append((similar_artist.viewCount, similar_artist))
+            similar_artists = sorted(similar_artists, key=lambda tup: tup[0])
+            limit = len(list) + 1
+            for similar_artist in similar_artists:
+                similar_tracks_results = music.search(libtype='track', filters={'artist.id': similar_artist[1].ratingKey, 'track.userRating': -1})
+                for track in similar_tracks_results:
+                    if is_music(track) and (not clean or is_clean(track)) and contains_artist(list, track.grandparentTitle) == 0 and contains_track(list, track.title) == 0:
+                        print('\t', artist.title, '->', track.grandparentTitle, '-', track.title)
+                        list.append(track)
+                        if len(list) >= limit:
+                            break
+                if len(list) >= limit:
+                    break
+
+
+
+
+    # random.shuffle(list)
+    if clean:
+        adjust_playlist(music, 'Georgia List (Clean)', list)
+    else:
+        adjust_playlist(music, 'Georgia List', list)
+
+
+def fetch(path):
+    url = baseurl
+
+    header = {'Accept': 'application/json'}
+    params = {'X-Plex-Token': token,
+              'includePopularLeaves': '1'
+              }
+
+    r = requests.get(url + path, headers=header, params=params, verify=False)
+    return r.json()['MediaContainer']['Metadata'][0]['PopularLeaves']['Metadata']
+
+def get_popular(artist):
+    ratingKey_lst = []
+    track_lst = []
+
+    try:
+        ratingKey_lst += fetch('/library/metadata/{}'.format(artist.ratingKey))
+        for tracks in ratingKey_lst:
+            track_lst.append(plex.fetchItem(int(tracks['ratingKey'])))
+    except KeyError as e:
+        print('Artist: {} does not have any popular tracks listed.'.format(artist.title))
+        print('Error: {}'.format(e))
+
+    return track_lst
 
 
 if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
 
+    best_georgia()
+
     rate_albums()
     rate_artists()
+
 
     best_unrated()
     daily_listen()
