@@ -1,4 +1,5 @@
 import plexapi.utils
+from pprint import pprint
 import requests
 from tenacity import wait_exponential, retry, stop_after_attempt
 from plexapi.server import PlexServer
@@ -471,7 +472,7 @@ def clear_moods(library, title):
 def best_georgia(clean=False):
     list = []
 
-    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia'})
+    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia Spotify'})
 
     print('Specifically requested tracks')
     for track in tracks:
@@ -546,12 +547,15 @@ def best_georgia(clean=False):
                 if len(list) >= limit:
                     break
 
-
+    for track in list:
+        clean_list = []
+        if is_clean(track):
+            clean_list.append(track)
 
 
     # random.shuffle(list)
     if clean:
-        adjust_playlist(music, 'Georgia List (Clean)', list)
+        adjust_playlist(music, 'Georgia List (Clean)', clean_list)
     else:
         adjust_playlist(music, 'Georgia List', list)
 
@@ -581,16 +585,62 @@ def get_popular(artist):
 
     return track_lst
 
+def clean_string(str):
+    result = str
+    result = result.replace('\'', '')
+    result = result.replace('Hard-FI', 'Hard-Fi')
+    result = result.replace('Party (feat. André 3000)', 'Party')
+    return result
+
+def tag_spotify_playlist():
+    import spotipy
+    from spotipy.oauth2 import SpotifyClientCredentials
+
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id="6dc28bebf2d043299e4974963a8aa860",
+                                                               client_secret="154cf66094f442c5aed87fea36917a93"))
+
+    pl_id = 'spotify:playlist:5vLF2mLkE8Xei0NEWX9nO8'
+    offset = 0
+    tracks = []
+    while True:
+        response = sp.playlist_items(pl_id,
+                                     offset=offset,
+                                     fields='items.track.artists.name,items.track.album.name,items.track.name,',
+                                     additional_types=['track'])
+
+        if len(response['items']) == 0:
+            break
+
+        #pprint(response['items'])
+        offset = offset + len(response['items'])
+        #print(offset, "/", response['total'])
+
+        for item in response['items']:
+            artist_str = clean_string(item['track']['artists'][0]['name'])
+            album_str = clean_string(item['track']['album']['name'])
+            track_str = clean_string(item['track']['name'])
+            print(f'Artist:{artist_str} Album:{album_str} Track:{track_str}')
+            track = music.search(libtype='track', filters={'artist.title==': artist_str, 'album.title==': album_str, 'track.title':track_str})
+            if len(track) == 0:
+                track = music.search(libtype='track', filters={'artist.title==': artist_str, 'track.title': track_str})
+            if len(track) == 0:
+                track = music.search(libtype='track', filters={'album.title==': album_str, 'track.title':track_str})
+            print(track)
+            if len(track) > 0:
+                tracks.append(track[0])
+    adjust_playlist(music, 'Georgia Spotify', tracks)
+
 
 if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
 
-    best_georgia()
+    tag_spotify_playlist()
+
+    best_georgia(clean=True)
 
     rate_albums()
     rate_artists()
-
 
     best_unrated()
     daily_listen()
