@@ -547,8 +547,8 @@ def best_georgia(clean=False):
                 if len(list) >= limit:
                     break
 
+    clean_list = []
     for track in list:
-        clean_list = []
         if is_clean(track):
             clean_list.append(track)
 
@@ -637,6 +637,7 @@ if __name__ == '__main__':
 
     tag_spotify_playlist()
 
+    best_georgia(clean=False)
     best_georgia(clean=True)
 
     rate_albums()
