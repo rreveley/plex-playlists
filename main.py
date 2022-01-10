@@ -472,7 +472,7 @@ def clear_moods(library, title):
 def best_georgia(clean=False):
     list = []
 
-    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia Spotify'})
+    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia Spotify'}, sort='track.viewCount:asc', limit=50)
 
     print('Specifically requested tracks')
     for track in tracks:
@@ -537,7 +537,7 @@ def best_georgia(clean=False):
             similar_artists = sorted(similar_artists, key=lambda tup: tup[0])
             limit = len(list) + 1
             for similar_artist in similar_artists:
-                similar_tracks_results = music.search(libtype='track', filters={'artist.id': similar_artist[1].ratingKey, 'track.userRating': -1})
+                similar_tracks_results = music.search(libtype='track', filters={'artist.id': similar_artist[1].ratingKey}, sort='track.viewCount:asc')
                 for track in similar_tracks_results:
                     if is_music(track) and (not clean or is_clean(track)) and contains_artist(list, track.grandparentTitle) == 0 and contains_track(list, track.title) == 0:
                         print('\t', artist.title, '->', track.grandparentTitle, '-', track.title)
