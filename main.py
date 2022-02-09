@@ -295,7 +295,6 @@ def best_unrated(clean=False):
         similar_artists = []
         for similar in artist.similar:
             similar_str = similar.tag.translate(str.maketrans('','',string.punctuation))
-            print(similar, similar_str)
             similar_artist_results = music.search(libtype='artist', filters={'artist.title==': similar_str})
             for similar_artist in similar_artist_results:
                 similar_artists.append((similar_artist.viewCount, similar_artist))
@@ -538,7 +537,8 @@ def best_georgia(clean=False):
         for artist in artist_name:
             similar_artists = []
             for similar in artist.similar:
-                similar_artist_results = music.search(libtype='artist', filters={'artist.title==': similar.tag})
+                similar_str = similar.tag.translate(str.maketrans('','',string.punctuation))
+                similar_artist_results = music.search(libtype='artist', filters={'artist.title==': similar_str})
                 for similar_artist in similar_artist_results:
                     similar_artists.append((similar_artist.viewCount, similar_artist))
             similar_artists = sorted(similar_artists, key=lambda tup: tup[0])
