@@ -1,4 +1,5 @@
 import plexapi.utils
+import string
 from pprint import pprint
 import requests
 from tenacity import wait_exponential, retry, stop_after_attempt
@@ -256,7 +257,7 @@ def is_music(track):
     return track.duration is not None and track.duration > 60*1000
 
 #50 of the best songs I've never rated
-@retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
+#@retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
 def best_unrated(clean=False):
     results = music.search(libtype='artist', sort='userRating:desc,viewCount:desc')
     #find 10 best artists
@@ -293,7 +294,9 @@ def best_unrated(clean=False):
     for artist in best_artists:
         similar_artists = []
         for similar in artist.similar:
-            similar_artist_results = music.search(libtype='artist', filters={'artist.title==': similar.tag})
+            similar_str = similar.tag.translate(str.maketrans('','',string.punctuation))
+            print(similar, similar_str)
+            similar_artist_results = music.search(libtype='artist', filters={'artist.title==': similar_str})
             for similar_artist in similar_artist_results:
                 similar_artists.append((similar_artist.viewCount, similar_artist))
         similar_artists = sorted(similar_artists, key=lambda tup: tup[0])
@@ -472,14 +475,17 @@ def clear_moods(library, title):
 def best_georgia(clean=False):
     list = []
 
-    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia Spotify'}, sort='track.viewCount:asc', limit=50)
+    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia Spotify'}, sort='track.viewCount:asc')
 
     #TODO: Change this so it always gets 50 tracks
     print('Specifically requested tracks')
+    limit = len(list)+50
     for track in tracks:
         if is_music(track) and (not clean or is_clean(track)) and contains_track(list, track.title) == 0 and contains_album(list, track.parentTitle) < 1:
             print('\t', track.grandparentTitle, track.title)
             list.append(track)
+            if len(list) >= limit:
+                break
 
     #collect all artists from this list
     artists_str = set()
@@ -501,7 +507,7 @@ def best_georgia(clean=False):
             for track in tracks:
                 if min_pop is None or track.viewCount < min_pop.viewCount:
                     min_pop = track
-            print('\t', artist.title, track.title)
+            print('\t', artist.title, track.title, track.viewCount)
             if min_pop is not None:
                 list.append(min_pop)
 
