@@ -1,2 +1,9 @@
 /data/lyrics_data.csv
 /venv/
+/__pycache__/
+/venv-tmp/
+.cache
+out.log
+plex-playlists.sh
+run.sh
+plex-playlists.sh.noredirect

@@ -71,12 +71,14 @@ def is_explicit(track):
         print(f'file not found: {location}')
         return 0, []
 
-@retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
+#@retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
 def rate_albums():
+    log_prefix="rate_albums"
+
     print('Rating albums')
     results = music.search(libtype='album', filters={'track.userRating>>': 0})
-    for album in results:
-        track_results = music.search(libtype='track', filters={'album.id': album.ratingKey, 'track.userRating>>': 0})
+    for album in tqdm(results):
+        track_results = music.search(libtype='track', filters={'album.guid': album.guid, 'track.userRating>>': 0})
         total = 0
         count = 0
         for track in track_results:
@@ -86,7 +88,7 @@ def rate_albums():
         if count > 0:
             average = round(total / count, 1)
             if album.userRating != average:
-                print("Album Rating:", album.parentTitle, album.title, album.userRating, '->', average)
+                tqdm.write(f"{log_prefix}: {album.guid} {album.ratingKey} {album.parentTitle} {album.title} {album.userRating} -> {average}")
                 album.rate(average)
 
 @retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
@@ -94,19 +96,24 @@ def rate_artists():
     print('Rating artists')
     results = music.search(libtype='artist', filters={'track.userRating>>': 0})
 
-    for artist in results:
-        track_results = music.search(libtype='track', filters={'artist.id': artist.ratingKey, 'track.userRating>>': 0})
+    for artist in tqdm(results):
+        track_results = music.search(libtype='track', filters={'artist.id': artist.ratingKey, 'track.userRating>>': 0}, sort='userRating:asc')
         total = 0
         count = 0
+        exp_avg = 4
+        titles = []
         for track in track_results:
-            if track.userRating is not None and is_music(track):
+            if track.userRating is not None and is_music(track) and track.title not in titles:
+                titles.append(track.title)
                 total += track.userRating
                 count += 1
+                exp_avg = exp_avg*0.9+track.userRating*0.1 
         if count > 0:
+            exp_avg = round(exp_avg, 1)
             average = round(total / count, 1)
-            if artist.userRating != average:
-                print("Artist Rating:", artist.title, artist.userRating, '->', average)
-                artist.rate(average)
+            if artist.userRating != exp_avg:
+                tqdm.write(f"Artist Rating: {artist.title} {artist.userRating} -> {exp_avg}")
+                artist.rate(exp_avg)
 
 def contains_track(list, track):
     count = 0
@@ -129,63 +136,81 @@ def contains_artist(list, artist):
             count += 1
     return count
 
+def contains_genre(list, genre_to_count):
+    count = 0
+    for track in list:
+        genres  = [genre.tag for genre in track.genres]
+        if genre_to_count in genres:
+            count += 1
+    return count
+
 def daily_listen(clean=False):
 
-    # 5* songs 100 least play count
-    # 4* songs 50 least play count
-    # 3* songs 50 least play count
-    # 5* artists 30 unrated songs
-    # 4* artists 30 unrated songs
+    # 5* songs 50 least play count
+    # 4* songs 25 least play count
+    # 3* songs 10 least play count
+    # 5* artists 5 unrated songs
+    # 4* artists 5 unrated songs
     # Released ion last year 100 songs
 
     # for p in music.playlists():
     #     print(p)
     #     if 'Daily Listen' in p.title:
     #         p.delete()
-
+    if clean:
+        log_prefix = 'daily_clean'
+    else:
+        log_prefix = 'daily'
+    log_mid='na'
+    print(f'{log_prefix}-{log_mid} Creating Daily Listen')
+    log_mid='least-heard-5star'
     tracks = []
     limit = len(tracks)+50
     results = music.search(libtype='track', filters={'track.userRating': 10}, sort='viewCount:asc')
     for track in results:
-        if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
-            print(len(tracks), '5*', track.grandparentTitle, track, track.viewCount)
-            tracks.append(track)
-            if len(tracks) >= limit:
-                break
+        if is_music(track) and (not clean or is_clean(track)) \
+            and contains_artist(tracks, track.grandparentTitle) == 0 \
+            and contains_track(tracks, track.title) == 0        :
+                print(f'{log_prefix}-{log_mid} Adding {track.grandparentTitle} - {track.title} - {track.viewCount}')
+                tracks.append(track)
+                if len(tracks) >= limit:
+                    break
 
-
+    log_mid='least-heard-4star'
     results = music.search(libtype='track', filters={'track.userRating': 8}, sort='viewCount:asc')
     limit = len(tracks)+25
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
-            print(len(tracks), '4*',track.grandparentTitle,  track, track.viewCount)
+            print(f'{log_prefix}-{log_mid} Adding {track.grandparentTitle} - {track.title} - {track.viewCount}')
             tracks.append(track)
             if len(tracks) >= limit:
                 break
 
+    log_mid='least-heard-3star'
     results = music.search(libtype='track', filters={'track.userRating': 6}, sort='viewCount:asc')
     limit = len(tracks)+10
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
-            print(len(tracks), '3*',track.grandparentTitle, track, track.viewCount)
+            print(f'{log_prefix}-{log_mid} Adding {track.grandparentTitle} - {track.title} - {track.viewCount}')
             tracks.append(track)
             if len(tracks) >= limit:
                 break
 
+    log_mid = "5star-artist-least-heard-track"
     limit = len(tracks)+5
     results = music.search(libtype='track', filters={'artist.userRating>>': 8}, sort='viewCount:asc')
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
-            print(len(tracks), '5* Artist', track.grandparentTitle, track, track.viewCount)
+            print(f'{log_prefix}-{log_mid} Adding {track.grandparentTitle} - {track.title} - {track.viewCount}')
             tracks.append(track)
             if len(tracks) >= limit:
                 break
-
+    log_mid = "4star-artist-least-heard-track"
     limit = len(tracks)+5
     results = music.search(libtype='track', filters={'artist.userRating>>=': 6, 'artist.userRating<<': 8}, sort='viewCount:asc')
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
-            print(len(tracks), '4* Artist', track.grandparentTitle, track, track.viewCount)
+            print(f'{log_prefix}-{log_mid} Adding {track.grandparentTitle} - {track.title} - {track.viewCount}')
             tracks.append(track)
             if len(tracks) >= limit:
                 break
@@ -194,7 +219,6 @@ def daily_listen(clean=False):
         adjust_playlist(music, 'Daily Listen (Clean)', tracks)
     else:
         adjust_playlist(music, 'Daily Listen', tracks)
-
 
 def one_track_unrated_artist():
     #playlist with one track from each unrated artist
@@ -212,7 +236,7 @@ def one_track_unrated_artist():
 
     adjust_playlist(music, 'Unrated Artists', tracklist)
 
-@retry(wait=wait_exponential(multiplier=2, min=2, max=30),  stop=stop_after_attempt(5))
+#retry(wait=wait_exponential(multiplier=2, min=2, max=30),  stop=stop_after_attempt(5))
 def adjust_playlist(library, title, tracklist):
     print(f"Updating {title} with {len(tracklist)} tracks")
     exists = False
@@ -235,19 +259,14 @@ def adjust_playlist(library, title, tracklist):
         if track not in tracklist:
             existing_moods = [mood.tag for mood in track.moods]
             if title in existing_moods:
-                data = plexapi.utils.tag_helper("mood", [title], remove=True)
-                track.edit(**data)
-                track.reload()
+                track.removeMood([title])
 
     for track in playlist.items():
         existing_moods = [mood.tag for mood in track.moods]
         if track not in tracklist:
             playlist.removeItems([track])
         if title not in existing_moods:
-            data = plexapi.utils.tag_helper("mood", existing_moods + [title])
-            track.edit(**data)
-            track.reload()
-
+            track.addMood([title])
 
 
 def is_music(track):
@@ -259,26 +278,32 @@ def is_music(track):
 #50 of the best songs I've never rated
 #@retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
 def best_unrated(clean=False):
+    log_prefix="unrated"
+    log_mid="na"
+    print(f"{log_prefix}-{log_mid} Creating Selected Unrated")
     results = music.search(libtype='artist', sort='userRating:desc,viewCount:desc')
     #find 10 best artists
+    log_mid="best_artist"
+    print(f"{log_prefix} Finding best artists")
     best_artists = []
     for artist in results:
         if len(best_artists) < 20:
             if artist.title != 'Various Artists':
                 unrated_tracks_results = music.search(libtype='track', filters={'artist.id': artist.ratingKey, 'track.userRating': -1})
-                print('Best Artist:', artist.title, 'Rating', artist.userRating, 'Views', artist.viewCount, 'Unrated Tracks', len(unrated_tracks_results))
+                print(f'{log_prefix}-{log_mid} Checking Artist:', artist.title, 'Rating', artist.userRating, 'Unrated Tracks', len(unrated_tracks_results))
                 for track in unrated_tracks_results:
                     if is_music(track) and (not clean or is_clean(track)):
                         best_artists.append(artist)
+                        print(f'{log_prefix}-{log_mid} \t Adding Artist: {artist.title}')
                         break
 
 
-    print(best_artists)
-
+    print(f"{log_prefix}-{log_mid} Selected artists: {best_artists}")
+    log_mid="songs_of_best_artists"
     #now need 4 best songs from the 10 best artists
     list = []
     for artist in best_artists:
-        print(artist.title, artist.userRating, 'Artist ViewCount:', artist.viewCount)
+        print(f'{log_prefix}-{log_mid} {artist.title} {artist.userRating}')
 
         #first get tracks from least heard rated albums,that way we rotate the albums day to day
         unrated_tracks_results = music.search(libtype='track', filters={'artist.id': artist.ratingKey, 'track.userRating': -1}, sort='album.viewCount:asc')
@@ -286,10 +311,11 @@ def best_unrated(clean=False):
         for track in unrated_tracks_results:
             if is_music(track) and (not clean or is_clean(track)) and contains_track(list, track.title) == 0 and contains_album(list, track.parentTitle) < 2:
                 list.append(track)
-                print('\t', track.parentTitle, track.title)
+                print(f'{log_prefix}-{log_mid} \t Album:{track.parentTitle} Track:{track.title}')
             if len(list) >= limit:
                 break
-
+            
+    log_mid="similar_artists"
     #Find least heard similar artist, add one unheard track
     for artist in best_artists:
         similar_artists = []
@@ -297,14 +323,16 @@ def best_unrated(clean=False):
             similar_str = similar.tag.translate(str.maketrans('','',string.punctuation))
             similar_artist_results = music.search(libtype='artist', filters={'artist.title==': similar_str})
             for similar_artist in similar_artist_results:
+                print(f'{log_prefix}-{log_mid} Similar to:{artist.title} is {similar_artist.title} viewCount: {similar_artist.viewCount}')
                 similar_artists.append((similar_artist.viewCount, similar_artist))
         similar_artists = sorted(similar_artists, key=lambda tup: tup[0])
         limit = len(list) + 1
         for similar_artist in similar_artists:
+            print(f'{log_prefix}-{log_mid} \t Finding 1 unrated track by {similar_artist[1].title}')
             similar_tracks_results = music.search(libtype='track',filters={'artist.id': similar_artist[1].ratingKey, 'track.userRating': -1})
             for track in similar_tracks_results:
                 if is_music(track)  and (not clean or is_clean(track))and contains_artist(list, track.grandparentTitle) == 0 and contains_track(list, track.title) == 0:
-                    print(artist.title, '->', track.grandparentTitle, '-', track.title)
+                    print(f'{log_prefix}-{log_mid} \t \t Adding {track.grandparentTitle} - {track.parentTitle} - {track.title}')
                     list.append(track)
                     if len(list) >= limit:
                         break
@@ -472,16 +500,22 @@ def clear_moods(library, title):
             track.reload()
 @retry(wait=wait_exponential(multiplier=2, min=2, max=60), stop=stop_after_attempt(10))
 def best_georgia(clean=False):
+    if clean:
+        log_prefix = 'georgia_clean'
+    else:
+        log_prefix = 'georgia'
+    log_mid='na'
     list = []
 
     tracks = music.search(libtype='track', filters={'track.mood': 'Georgia Spotify'}, sort='track.viewCount:asc')
 
     #TODO: Change this so it always gets 50 tracks
-    print('Specifically requested tracks')
+    log_mid = "spotify_matches"
+    print(f'{log_prefix}-{log_mid} Specifically requested tracks')
     limit = len(list)+50
     for track in tracks:
         if is_music(track) and (not clean or is_clean(track)) and contains_track(list, track.title) == 0 and contains_album(list, track.parentTitle) < 1:
-            print('\t', track.grandparentTitle, track.title)
+            print(f'{log_prefix}-{log_mid} \t {track.grandparentTitle} {track.title}')
             list.append(track)
             if len(list) >= limit:
                 break
@@ -492,12 +526,15 @@ def best_georgia(clean=False):
         artists_str.add(track.grandparentTitle)
 
     artists = []
+    log_mid="artists"
     for artist_str in artists_str:
+        print(f'{log_prefix}-{log_mid} Spotify artist: {artist_str}')
         artist = music.search(libtype='artist', filters={'artist.title==': artist_str})
-        artists.append(artist)
 
+        artists.append(artist)
+    log_mid="artists_popular"
     #least heard of most popular tracks by that artist
-    print('Least Heard Popular Tracks by Known Artists')
+    print(f'{log_prefix}-{log_mid} Least Heard Popular Tracks by Known Artists')
     for artist_name in artists:
         limit = len(list) + 1
         for artist in artist_name:
@@ -506,18 +543,19 @@ def best_georgia(clean=False):
             for track in tracks:
                 if min_pop is None or track.viewCount < min_pop.viewCount:
                     min_pop = track
-            print('\t', artist.title, track.title, track.viewCount)
+            print(f'{log_prefix}-{log_mid} Adding: {artist.title} - {track.title} views: {track.viewCount}')
             if min_pop is not None:
                 list.append(min_pop)
 
 
 
     #least heard track of 4 or 5 rating by that artist
-    print('High Rated Tracks by Known Artists')
+    log_mid="artists_high_rated"
+    print(f'{log_prefix}-{log_mid} High Rated Tracks by Known Artists')
     for artist_name in artists:
         limit = len(list) + 4
         for artist in artist_name:
-            results = music.search(libtype='track',filters={'artist.id': artist.ratingKey, 'track.userRating>>=': 3}, sort='track.viewCount:asc')
+            results = music.search(libtype='track',filters={'artist.id': artist.ratingKey, 'track.userRating>>=': 8}, sort='track.viewCount:asc')
 
             for track in results:
                 if track is not None:
@@ -525,14 +563,14 @@ def best_georgia(clean=False):
                         if (not clean or is_clean(track)):
                             if contains_track(list, track.title) == 0:
                                 if contains_album(list, track.parentTitle) < 1:
-                                    if is_music(track) and (not clean or is_clean(track)) and contains_track(list, track.title) == 0 and contains_album(list, track.parentTitle) < 1:
-                                        list.append(track)
-                                        print('\t', track.grandparentTitle, track.title)
-                                    if len(list) >= limit:
-                                        break
+                                    list.append(track)
+                                    print(f'{log_prefix}-{log_mid} Adding: {artist.title} - {track.title} views: {track.viewCount}')
+                                if len(list) >= limit:
+                                    break
 
     #plus one track from a similar artist
-    print('Tracks by similar artists')
+    log_mid="similar_artists"
+    print(f'{log_prefix}-{log_mid} Tracks by similar artists')
     for artist_name in artists:
         for artist in artist_name:
             similar_artists = []
@@ -540,14 +578,15 @@ def best_georgia(clean=False):
                 similar_str = similar.tag.translate(str.maketrans('','',string.punctuation))
                 similar_artist_results = music.search(libtype='artist', filters={'artist.title==': similar_str})
                 for similar_artist in similar_artist_results:
+                    print(f'{log_prefix}-{log_mid} Similar to {artist.title} adding {similar_artist.title} views: {similar_artist.viewCount}')
                     similar_artists.append((similar_artist.viewCount, similar_artist))
             similar_artists = sorted(similar_artists, key=lambda tup: tup[0])
             limit = len(list) + 1
             for similar_artist in similar_artists:
-                similar_tracks_results = music.search(libtype='track', filters={'artist.id': similar_artist[1].ratingKey}, sort='track.viewCount:asc')
+                similar_tracks_results = music.search(libtype='track', filters={'artist.id': similar_artist[1].ratingKey, 'track.userRating>>=': 8}, sort='track.viewCount:asc')
                 for track in similar_tracks_results:
                     if is_music(track) and (not clean or is_clean(track)) and contains_artist(list, track.grandparentTitle) == 0 and contains_track(list, track.title) == 0:
-                        print('\t', artist.title, '->', track.grandparentTitle, '-', track.title)
+                        print(f'{log_prefix}-{log_mid} \t Adding: {track.grandparentTitle} - {track.title} views: {track.viewCount}')
                         list.append(track)
                         if len(list) >= limit:
                             break
@@ -600,50 +639,55 @@ def clean_string(str):
     return result
 
 def tag_spotify_playlist():
+
+    log_prefix = 'tag_spotify'
+    log_mid = 'na'
+    print(f'{log_prefix}-{log_mid} Tag Spotify')
     import spotipy
     from spotipy.oauth2 import SpotifyClientCredentials
 
-    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id="6dc28bebf2d043299e4974963a8aa860",
-                                                               client_secret="154cf66094f442c5aed87fea36917a93"))
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id="1a166ae126484b31bf7141daf34e0b72",
+                                                               client_secret="32e71b2a366347789f5f1c02b4238e56"))
 
     pl_id = 'spotify:playlist:5vLF2mLkE8Xei0NEWX9nO8'
     offset = 0
     tracks = []
-    while True:
-        response = sp.playlist_items(pl_id,
-                                     offset=offset,
-                                     fields='items.track.artists.name,items.track.album.name,items.track.name,',
-                                     additional_types=['track'])
+    try:
+        while True:
+            response = sp.playlist_items(pl_id,
+                                        offset=offset,
+                                        fields='items.track.artists.name,items.track.album.name,items.track.name,',
+                                        additional_types=['track'])
 
-        if len(response['items']) == 0:
-            break
+            if len(response['items']) == 0:
+                break
 
-        #pprint(response['items'])
-        offset = offset + len(response['items'])
-        #print(offset, "/", response['total'])
+            #pprint(response['items'])
+            offset = offset + len(response['items'])
+            #print(offset, "/", response['total'])
 
-        for item in response['items']:
-            artist_str = clean_string(item['track']['artists'][0]['name'])
-            album_str = clean_string(item['track']['album']['name'])
-            track_str = clean_string(item['track']['name'])
-            print(f'Artist:{artist_str} Album:{album_str} Track:{track_str}')
-            track = music.search(libtype='track', filters={'artist.title==': artist_str, 'album.title==': album_str, 'track.title':track_str})
-            if len(track) == 0:
-                track = music.search(libtype='track', filters={'artist.title==': artist_str, 'track.title': track_str})
-            if len(track) == 0:
-                track = music.search(libtype='track', filters={'album.title==': album_str, 'track.title':track_str})
-            print(track)
-            if len(track) > 0:
-                tracks.append(track[0])
-    adjust_playlist(music, 'Georgia Spotify', tracks)
-
+            for item in response['items']:
+                artist_str = clean_string(item['track']['artists'][0]['name'])
+                album_str = clean_string(item['track']['album']['name'])
+                track_str = clean_string(item['track']['name'])
+                print(f'{log_prefix} Spotify Artist:{artist_str} Album:{album_str} Track:{track_str}')
+                track = music.search(libtype='track', filters={'artist.title==': artist_str, 'album.title==': album_str, 'track.title==':track_str})
+                #if len(track) == 0:
+                #    track = music.search(libtype='track', filters={'artist.title==': artist_str, 'track.title': track_str})
+                #if len(track) == 0:
+                #    track = music.search(libtype='track', filters={'album.title==': album_str, 'track.title':track_str})
+                if len(track) > 0:
+                    print(f'{log_prefix} \t Found Artist:{track[0].grandparentTitle} Album:{track[0].parentTitle} Track:{track[0].title}')
+                    tracks.append(track[0])
+        adjust_playlist(music, 'Georgia Spotify', tracks)
+    except:
+        print(f"{log_prefix} tag spotify failed")
 
 if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
-
+   
     tag_spotify_playlist()
-
     best_georgia(clean=False)
     best_georgia(clean=True)
 
