@@ -31,10 +31,15 @@ def movie_compare(a, b):
         return 1
     return -1
 
-
+config = {}
+with open("conf/plex-playlists.conf") as config_file:
+    for line in config_file:
+        name, var = line.partition("=")[::2]
+        config[name.strip()] = var.strip()
+        
 cmp_items_py3 = cmp_to_key(movie_compare)
 
-token = 'ZfxxHwnW2pyd6egLfzPi'
+token = config['plex_token']
 baseurl = 'http://192.168.1.147:32400'
 
 if __name__ == '__main__':

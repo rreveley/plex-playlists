@@ -7,3 +7,5 @@ out.log
 plex-playlists.sh
 run.sh
 plex-playlists.sh.noredirect
+venv/
+conf/

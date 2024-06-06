@@ -1,4 +1,5 @@
 import plexapi.utils
+import sys
 import string
 from pprint import pprint
 import requests
@@ -8,14 +9,21 @@ import mutagen
 from mutagen.id3 import ID3, COMM, POPM
 from mutagen import MutagenError
 from tqdm import tqdm
-
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+import math 
 import numpy as np
 import profanity_check
 
 badwords=['nigga', 'fuck', 'shit', 'bitch']
 
+config = {}
+with open("conf/plex-playlists.conf") as config_file:
+    for line in config_file:
+        name, var = line.partition("=")[::2]
+        config[name.strip()] = var.strip()
 
-token = 'ZfxxHwnW2pyd6egLfzPi'
+token = config['plex_token']
 baseurl = 'http://192.168.1.147:32400'
 
 def is_clean(track):
@@ -646,8 +654,8 @@ def tag_spotify_playlist():
     import spotipy
     from spotipy.oauth2 import SpotifyClientCredentials
 
-    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id="1a166ae126484b31bf7141daf34e0b72",
-                                                               client_secret="32e71b2a366347789f5f1c02b4238e56"))
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=config['spotify_id'],
+                                                            client_secret=config['spotify_secret']))
 
     pl_id = 'spotify:playlist:5vLF2mLkE8Xei0NEWX9nO8'
     offset = 0
@@ -656,7 +664,7 @@ def tag_spotify_playlist():
         while True:
             response = sp.playlist_items(pl_id,
                                         offset=offset,
-                                        fields='items.track.artists.name,items.track.album.name,items.track.name,',
+                                        fields='items.track.id,items.track.artists.name,items.track.album.name,items.track.name,items.track.popularity',
                                         additional_types=['track'])
 
             if len(response['items']) == 0:
@@ -683,13 +691,49 @@ def tag_spotify_playlist():
     except:
         print(f"{log_prefix} tag spotify failed")
 
+def tag_popularity():
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=config['spotify_id'],
+                                                            client_secret=config['spotify_secret']))
+
+    tracks = music.search(libtype='track', filters={'track.userRating>>=': 7, 'track.mood!=':['Pop:0', 'Pop:25', 'Pop:50', 'Pop:75', 'Pop:100']}, sort='track.userRating')
+    for track in tracks:
+        result = sp.search(q=f'artist:{track.grandparentTitle} track:{track.title}', type='track')
+        if(len(result['tracks']['items'])>0):
+            pop=result['tracks']['items'][0]['popularity']
+            print(f"Searching {track.grandparentTitle} {track.title}, Finding: {result['tracks']['items'][0]['artists'][0]['name']} {result['tracks']['items'][0]['name']}, Setting Pop:{pop}")
+            new_mood = f'Pop:{math.ceil(pop/25)*25}'
+            existing_moods = [mood.tag for mood in track.moods]
+            for existing_mood in existing_moods:
+                if existing_mood.startswith("Pop:") and existing_mood != new_mood:
+                    track.removeMood(existing_mood)
+            if new_mood not in existing_moods:
+                track.addMood([new_mood])
+
+def popular_songs(clean=False):
+    log_prefix = 'popular'
+    log_mid = 'na'
+
+    tracklist = []
+    tracks = music.search(libtype='track', filters={'track.userRating>>=': 7, 'track.mood=':'Pop:100'}, sort='track.viewCount:asc')
+    for track in tracks:
+        if is_music(track) and (not clean or is_clean(track)) and contains_track(tracklist, track.title) == 0 and contains_album(tracklist, track.parentTitle) == 0  and contains_artist(tracklist, track.grandparentTitle) < 2:
+            print(f'{log_prefix}-{log_mid} \t {track.grandparentTitle} {track.title}')
+            tracklist.append(track)
+
+    adjust_playlist(music, 'Popular Songs', tracklist)
+
 if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
    
-    tag_spotify_playlist()
-    best_georgia(clean=False)
-    best_georgia(clean=True)
+    #get popularity of songs
+    tag_popularity()
+    popular_songs()
+    
+
+    #tag_spotify_playlist()
+    #best_georgia(clean=False)
+    #best_georgia(clean=True)
 
     rate_albums()
     rate_artists()
