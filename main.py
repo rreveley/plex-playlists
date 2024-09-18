@@ -274,7 +274,7 @@ def adjust_playlist(library, title, tracklist):
         if track not in tracklist:
             playlist.removeItems([track])
         if title not in existing_moods:
-            track.addMood([title])
+                track.addMood([title])
 
 
 def is_music(track):
@@ -725,7 +725,24 @@ def popular_songs(clean=False):
 if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
-   
+
+    exists = False
+    title = 'test'
+    for playlist in music.playlists():
+        if playlist.title == title:
+            exists = True
+            break
+
+    results = music.search(libtype='artist')
+    for artist in results:
+            for track in artist.extras():
+                if exists:
+                    if track not in playlist.items():
+                        playlist.addItems(items=[track])
+                if not exists:
+                    playlist = music.createPlaylist(title, items=[track])
+                    exists = True
+
     #get popularity of songs
     tag_popularity()
     popular_songs()

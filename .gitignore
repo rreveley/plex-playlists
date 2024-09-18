@@ -9,3 +9,4 @@ run.sh
 plex-playlists.sh.noredirect
 venv/
 conf/
+.cachedir/
