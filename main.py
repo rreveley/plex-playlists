@@ -1,21 +1,26 @@
 import plexapi.utils
-import sys
-import string
 from pprint import pprint
-import requests
 from tenacity import wait_exponential, retry, stop_after_attempt
 from plexapi.server import PlexServer
 import mutagen
 from mutagen.id3 import ID3, COMM, POPM
 from mutagen import MutagenError
 from tqdm import tqdm
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
-import math 
+import spotipy, math, re, requests, string, random, time
 import numpy as np
-import profanity_check
+from difflib import SequenceMatcher
+from spotipy.oauth2 import SpotifyClientCredentials
+import pathlib
 
-badwords=['nigga', 'fuck', 'shit', 'bitch']
+from beets.dbcore.query import SubstringQuery, AndQuery
+from beets.library import Library
+
+
+badwords=[]
+with open("conf/nsfw.txt") as config_file:
+    for line in config_file:
+        badwords.append(line.strip().lower())
+
 
 config = {}
 with open("conf/plex-playlists.conf") as config_file:
@@ -31,53 +36,93 @@ def is_clean(track):
         return False
     if 'No Lyrics' in [mood.tag for mood in track.moods]:
         return False
+    if 'Explicit-Manual' in [mood.tag for mood in track.moods]:
+        return False
+    if  'Clean' in [mood.tag for mood in track.moods]:
+        return True
+    if  'Instrumental' in [mood.tag for mood in track.moods]:
+        return True
 
-    return True
+    return False
 
-def is_explicit(track):
-    location = munge_location(track.locations[0])
-    lyrics = ''
-    try:
-        file = mutagen.File(location)
+#0 is clean, 1 is explicit, -1 is unknown, 2 is instrumental
+def is_explicit_beets(track):
+    lib_music = Library("/mnt/docker/beets/beets.db")
 
-        if location.endswith('.mp3'):
-            if 'audio/mp3' in file.mime:
-                audio = ID3(location)
-                lyrics_tag = audio.getall('USLT')
-                if isinstance(lyrics_tag, list):
-                    if len(lyrics_tag) > 0:
-                        lyrics = lyrics_tag[0].text
-                else:
-                    lyrics = lyrics_tag.text
-        if location.endswith('.flac'):
-            file = mutagen.File(location)
-            if 'audio/flac' in file.mime:
-                for tag in file.tags:
-                    if tag[0] == 'LYRICS':
-                        lyrics = tag[1]
+    query_response = lib_music.items(
+        AndQuery([
+            SubstringQuery('path', munge_location(track.locations[0])),
+        ])
+    )
+    if len(query_response) == 0:
+        print(f'Track not found in beets.db {track.locations[0]}')
+        return -1
+    unknown = True
+    for item in query_response:
+        lyrics = item.get('lyrics')
+        # Check for instrumental
+        if lyrics and '[Instrumental]' in lyrics and len(lyrics) < 50:
+            return 2
+        if any(substring in lyrics for substring in badwords):
+            bad_lines = []
+            lines = lyrics.split('\n')
+            for line in lines:
+                for badword in badwords:
+                    if badword in line.lower():
+                        bad_lines.append(line)
                         break
+            if bad_lines:
+                print(f'Explicit lyrics found in {track.grandparentTitle} - {track.title}:')
+                #for bad_line in bad_lines:
+                #    print(f'  {bad_line}')
+            return 1
+        if item.get('lyrics') != 'empty' and item.get('lyrics') != '':
+            unknown = False
 
-        if len(lyrics) == 0:
-            return -1, []
-        lines = lyrics.split('\n')
-        val = profanity_check.predict(lines)
-        result = np.where(val == 1)
-        bad_lines = []
-        if 1 in val:
-            for index in result[0]:
-                bad_lines.append(lines[index])
-            return 1, bad_lines
-            # for word in profanity.CENSOR_WORDSET:
-            #     if str(word) in lyrics:
-            #         index = lyrics.index(str(word))
-            #         start = max(index-10, 0)
-            #         end = min(index+10, len(lyrics))
-            #         return True, (str(word)+' : '+lyrics[start:end].replace('\n', ' '))
+    if unknown:
+        return -1
+    else:  # lyrics exist but they aren't is_explicit
+        val = is_censored_explicit(lyrics)
+        if val == 1:
+            return 1
+        return 0
 
-        return 0, []
-    except MutagenError as e:
-        print(f'file not found: {location}')
-        return 0, []
+def is_censored_explicit(lyrics):
+    if not lyrics or lyrics == 'empty':
+        return 0
+
+    censored_patterns = ['f-', 'n-', 'b-', 's-', 'sh-']
+    
+    lyrics_lower = lyrics.lower()
+    lines = lyrics.split('\n')
+    lines_lower = [line.lower() for line in lines]
+    
+    found_patterns = False
+    for pattern in censored_patterns:
+        for i, line_lower in enumerate(lines_lower):
+            index = 0
+            while True:
+                index = line_lower.find(pattern, index)
+                if index == -1:
+                    break
+                # Check if pattern is not immediately followed by a letter or hyphen
+                next_char_index = index + len(pattern)
+                if next_char_index >= len(line_lower) or (not line_lower[next_char_index].isalpha() and line_lower[next_char_index] != '-'):
+                    if not found_patterns:
+                        print(f'Censored explicit content found:')
+                        found_patterns = True
+                    print(f'  {lines[i]}')
+                    break
+                index += 1
+    
+    return 1 if found_patterns else 0
+
+
+def is_explicit_quick(track):
+    if "[Explicit]" in track.locations[0]:
+        return 1
+    else:
+        return 0
 
 #@retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
 def rate_albums():
@@ -122,11 +167,25 @@ def rate_artists():
             if artist.userRating != exp_avg:
                 tqdm.write(f"Artist Rating: {artist.title} {artist.userRating} -> {exp_avg}")
                 artist.rate(exp_avg)
+#TODO: Handle when two sets of ()
+def strip_remixes(title):
+    open = title.find("(")
+    close = title.find(")", open)
+    if open > -1 and close > -1:
+        remix = -1
+        for val in ["remix", "mix", "edit", "a deal with god", "version"]:
+            remix = max(title.lower().find(val), remix)
+        if open < remix < close:
+            title = re.sub(r"[\(\[].*?[\)\]]", "", title).strip()
+
+    return title
 
 def contains_track(list, track):
     count = 0
     for item in list:
-        if item.title == track:
+        stripped_item = strip_remixes(item.title)
+        stripped_track = strip_remixes(track)
+        if SequenceMatcher(None, stripped_item, stripped_track).ratio() > 0.8:
             count += 1
     return count
 
@@ -174,7 +233,7 @@ def daily_listen(clean=False):
     log_mid='least-heard-5star'
     tracks = []
     limit = len(tracks)+50
-    results = music.search(libtype='track', filters={'track.userRating': 10}, sort='viewCount:asc')
+    results = music.search(libtype='track', filters={'track.userRating': 10, 'artist.title!=': 'Various Artists'}, sort='lastViewedAt:asc')
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) \
             and contains_artist(tracks, track.grandparentTitle) == 0 \
@@ -185,7 +244,7 @@ def daily_listen(clean=False):
                     break
 
     log_mid='least-heard-4star'
-    results = music.search(libtype='track', filters={'track.userRating': 8}, sort='viewCount:asc')
+    results = music.search(libtype='track', filters={'track.userRating': 8, 'artist.title!=': 'Various Artists'}, sort='lastViewedAt:asc')
     limit = len(tracks)+25
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
@@ -195,7 +254,7 @@ def daily_listen(clean=False):
                 break
 
     log_mid='least-heard-3star'
-    results = music.search(libtype='track', filters={'track.userRating': 6}, sort='viewCount:asc')
+    results = music.search(libtype='track', filters={'track.userRating': 6, 'artist.title!=': 'Various Artists'}, sort='lastViewedAt:asc')
     limit = len(tracks)+10
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
@@ -206,7 +265,7 @@ def daily_listen(clean=False):
 
     log_mid = "5star-artist-least-heard-track"
     limit = len(tracks)+5
-    results = music.search(libtype='track', filters={'artist.userRating>>': 8}, sort='viewCount:asc')
+    results = music.search(libtype='track', filters={'artist.userRating>>': 8, 'artist.title!=': 'Various Artists'}, sort='lastViewedAt:asc')
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(f'{log_prefix}-{log_mid} Adding {track.grandparentTitle} - {track.title} - {track.viewCount}')
@@ -215,7 +274,7 @@ def daily_listen(clean=False):
                 break
     log_mid = "4star-artist-least-heard-track"
     limit = len(tracks)+5
-    results = music.search(libtype='track', filters={'artist.userRating>>=': 6, 'artist.userRating<<': 8}, sort='viewCount:asc')
+    results = music.search(libtype='track', filters={'artist.userRating>>=': 6, 'artist.userRating<<': 8, 'artist.title!=': 'Various Artists'}, sort='lastViewedAt:asc')
     for track in results:
         if is_music(track) and (not clean or is_clean(track)) and contains_artist(tracks, track.grandparentTitle) == 0 and contains_track(tracks, track.title) == 0:
             print(f'{log_prefix}-{log_mid} Adding {track.grandparentTitle} - {track.title} - {track.viewCount}')
@@ -229,30 +288,44 @@ def daily_listen(clean=False):
         adjust_playlist(music, 'Daily Listen', tracks)
 
 def one_track_unrated_artist():
+    log_prefix="unrated_artist"
+    log_mid="na"
+
     #playlist with one track from each unrated artist
     tracklist = []
     results = music.search(libtype='artist')
     for artist in results:
         if artist.userRating is None:
-            tracks = music.search(libtype='track',filters={'artist.id': artist.ratingKey}, limit=10)
-            #tracks = artist.tracks()
-            for track in tracks:
-                if is_music(track):
-                    tracklist.append(track)
-                    print(len(tracklist), 'Unrated Artists', track.grandparentTitle, track, track.viewCount)
-                    break
-
+            
+            tracks = get_popular(artist)
+            if len(tracks) > 0:
+                for track in tracks:
+                    if is_music(track):
+                        tracklist.append(track)
+                        print(f'{log_prefix}-popular \t Artist:{track.grandparentTitle} Album:{track.parentTitle} Track:{track.title}')
+                        break
+            else:
+                tracks = music.search(libtype='track',filters={'artist.id': artist.ratingKey}, limit=10)
+                #tracks = artist.tracks()
+                for track in tracks:
+                    if is_music(track):
+                        tracklist.append(track)
+                        print(f'{log_prefix}-any \t Artist:{track.grandparentTitle} Album:{track.parentTitle} Track:{track.title}')
+                        break
+    random.shuffle(tracklist)
     adjust_playlist(music, 'Unrated Artists', tracklist)
 
 #retry(wait=wait_exponential(multiplier=2, min=2, max=30),  stop=stop_after_attempt(5))
 def adjust_playlist(library, title, tracklist):
     print(f"Updating {title} with {len(tracklist)} tracks")
     exists = False
+    print(f"Get contents of {title} playlist")
     for playlist in library.playlists():
         if playlist.title == title:
             exists = True
             break
 
+    print(f"Add items to {title} playlist")
     for track in tracklist:
         if exists:
             if track not in playlist.items():
@@ -263,12 +336,14 @@ def adjust_playlist(library, title, tracklist):
 
     #select all items with that mood
     tracks = library.search(libtype='track', filters={'track.mood': title})
+    print(f"Remove existing moods from tracks not in tracklist")
     for track in tracks:
         if track not in tracklist:
             existing_moods = [mood.tag for mood in track.moods]
             if title in existing_moods:
                 track.removeMood([title])
 
+    print(f"Remove from playlist anything not in tracklist, add mood to everything in playlist")
     for track in playlist.items():
         existing_moods = [mood.tag for mood in track.moods]
         if track not in tracklist:
@@ -281,7 +356,7 @@ def is_music(track):
     for mood in track.moods:
         if mood.tag == 'Non-Music':
             return False
-    return track.duration is not None and track.duration > 60*1000
+    return track.duration is not None and track.duration > 60*1000 #60 seconds
 
 #50 of the best songs I've never rated
 #@retry(wait=wait_exponential(multiplier=2, min=2, max=60),  stop=stop_after_attempt(10))
@@ -289,7 +364,7 @@ def best_unrated(clean=False):
     log_prefix="unrated"
     log_mid="na"
     print(f"{log_prefix}-{log_mid} Creating Selected Unrated")
-    results = music.search(libtype='artist', sort='userRating:desc,viewCount:desc')
+    results = music.search(libtype='artist', sort='userRating:desc,lastViewedAt:desc')
     #find 10 best artists
     log_mid="best_artist"
     print(f"{log_prefix} Finding best artists")
@@ -314,7 +389,7 @@ def best_unrated(clean=False):
         print(f'{log_prefix}-{log_mid} {artist.title} {artist.userRating}')
 
         #first get tracks from least heard rated albums,that way we rotate the albums day to day
-        unrated_tracks_results = music.search(libtype='track', filters={'artist.id': artist.ratingKey, 'track.userRating': -1}, sort='album.viewCount:asc')
+        unrated_tracks_results = music.search(libtype='track', filters={'artist.id': artist.ratingKey, 'track.userRating': -1}, sort='album.lastViewedAt:asc')
         limit = len(list) + 4
         for track in unrated_tracks_results:
             if is_music(track) and (not clean or is_clean(track)) and contains_track(list, track.title) == 0 and contains_album(list, track.parentTitle) < 2:
@@ -355,6 +430,7 @@ def best_unrated(clean=False):
 
 
 def write_tags():
+    print("Writing ratings as comments to file")
     results = music.search(libtype='track', filters={'track.userRating>>': 0})
     for track in tqdm(results):
         if track.userRating > 8:
@@ -426,10 +502,12 @@ def munge_location(location):
     #location = location.replace('/volume1/media/music-beets', 'Y:')
     #location = location.replace('/volume1/media/music', 'Z:')
     #location = location.replace('/', '\\ ')
+    location = location.replace('/volume1/', '/mnt/')
     return location
 
 
 def read_tags():
+    print("Reading comments from file and updating to plex")
     # now do the opposite and go through every file and check if it has ratings, then apply to Plex
     artist_results = music.search(libtype='artist', sort='userRating:desc')
     for artist in tqdm(artist_results):
@@ -472,31 +550,152 @@ def read_tags():
             except MutagenError:
                 tqdm.write(f'File not found {location}')
 
-
-def check_lyrics():
+def check_lyrics_one_off():
+    log_prefix = 'lyrics'
     print('Checking lyrics')
     music = plex.library.section('Music-beets')
     explicit = []
     clean = []
     unknown = []
-    pbar = tqdm(music.search(libtype='track'))
+
+    title = "Naked Steel (The Warrior's Saga)"
+    advancedFilters = {
+    'and': [
+        {'title=': f"{title}"},
+    ]
+    }
+
+    pbar = tqdm(music.search(libtype='track', filters=advancedFilters))
+
     for track in pbar:
         if is_music(track):
-            result, bad_lines = is_explicit(track)
+            result = is_explicit_beets(track)
+            existing_moods = [mood.tag for mood in track.moods]
             if result == 1:
-                for line in bad_lines:
-                    if any(badword in line.lower() for badword in badwords):
-                        pass
-                    else:
-                        pbar.set_postfix({f'{track.grandparentTitle} {track.title}': f'{line}'})
+                if 'Explicit' not in existing_moods:
+                    track.addMood(['Explicit'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Adding Explicit')
+                if 'Clean' in existing_moods:
+                    track.removeMood(['Clean'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Clean')
+                if 'No Lyrics' in existing_moods:
+                    track.removeMood(['No Lyrics'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing No Lyrics')
                 explicit.append(track)
             elif result == 0:
+                if 'Explicit' in existing_moods:
+                    track.removeMood(['Explicit'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Explicit')
+                if 'Clean' not in existing_moods:
+                    track.addMood(['Clean'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Adding Clean')
+                if 'No Lyrics' in existing_moods:
+                    track.removeMood(['No Lyrics'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing No Lyrics')
                 clean.append(track)
             else:
+                if 'Explicit' in existing_moods:
+                    track.removeMood(['Explicit'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Explicit')
+                if 'Clean' in existing_moods:
+                    track.removeMood(['Clean'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Clean')
+                if 'No Lyrics' not in existing_moods:
+                    track.addMood(['No Lyrics'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Adding No Lyrics')
                 unknown.append(track)
-    adjust_playlist(music, 'Explicit', explicit)
-    #adjust_playlist(music, 'Clean Tracks', clean)
-    adjust_playlist(music, 'No Lyrics', unknown)
+    else:
+        track.addMood(['Non-Music'])
+
+def check_lyrics():
+    log_prefix = 'lyrics'
+    print('Checking lyrics')
+    music = plex.library.section('Music-beets')
+
+    print('Querying all tracks')
+
+
+    advancedFilters = {
+    'and': [
+        {'mood!=': 'LyricsChecked2'},
+    ] }
+
+    # advancedFilters = {
+    # 'and': [
+    #     {'mood!=': 'Non-Music'},
+    #     {'mood!=': 'Clean'},
+    #     {'mood!=': 'Explicit'},
+    #     {'mood!=': 'Instrumental'},
+    #     {'mood!=': 'No Lyrics'},
+    #     { 'or': [
+    #     {'mood=': 'LyricsChecked1'},
+    #     {'mood=': 'LyricsChecked2'},
+    # ] }
+    # ]
+    # }
+    pbar = tqdm(music.search(libtype='track', filters=advancedFilters, limit=5000))
+
+    for track in pbar:
+        if is_music(track):
+            track.removeMood('LyricsChecked1')
+            track.addMood('LyricsChecked2')
+            result = is_explicit_beets(track)
+            existing_moods = [mood.tag for mood in track.moods if mood.tag in {"Explicit", "Clean", "No Lyrics", "Instrumental"}]
+            if result == 1:
+                if 'Explicit' not in existing_moods:
+                    track.addMood(['Explicit'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Adding Explicit')
+                if 'Clean' in existing_moods:
+                    track.removeMood(['Clean'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Clean')
+                if 'Instrumental' in existing_moods:
+                    track.removeMood(['Instrumental'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Instrumental')
+                if 'No Lyrics' in existing_moods:
+                    track.removeMood(['No Lyrics'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing No Lyrics')
+            elif result == 0:
+                if 'Explicit' in existing_moods:
+                    track.removeMood(['Explicit'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Explicit')
+                if 'Clean' not in existing_moods:
+                    track.addMood(['Clean'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Adding Clean')
+                if 'Instrumental' in existing_moods:
+                    track.removeMood(['Instrumental'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Instrumental')
+                if 'No Lyrics' in existing_moods:
+                    track.removeMood(['No Lyrics'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing No Lyrics')
+            elif result == 2:
+                if 'Explicit' in existing_moods:
+                    track.removeMood(['Explicit'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Explicit')
+                if 'Clean' not in existing_moods:
+                    track.addMood(['Clean'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Adding Clean')
+                if 'Instrumental' not in existing_moods:
+                    track.addMood(['Instrumental'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Adding Instrumental')
+                if 'No Lyrics' in existing_moods:
+                    track.removeMood(['No Lyrics'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing No Lyrics')
+
+            else:
+                if 'Explicit' in existing_moods:
+                    track.removeMood(['Explicit'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Explicit')
+                if 'Clean' in existing_moods:
+                    track.removeMood(['Clean'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Clean')
+                if 'Instrumental' in existing_moods:
+                    track.removeMood(['Instrumental'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Removing Instrumental')
+                if 'No Lyrics' not in existing_moods:
+                    track.addMood(['No Lyrics'])
+                    print(f'{log_prefix} Modifying: {track.grandparentTitle} - {track.parentTitle} - {track.title} {existing_moods} Adding No Lyrics')
+    else:
+        track.addMood(['Non-Music'])
 
 def clear_moods(library, title):
     tracks = library.search(libtype='track', filters={'track.mood': title})
@@ -515,7 +714,7 @@ def best_georgia(clean=False):
     log_mid='na'
     list = []
 
-    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia Spotify'}, sort='track.viewCount:asc')
+    tracks = music.search(libtype='track', filters={'track.mood': 'Georgia Spotify'}, sort='track.lastViewedAt:asc')
 
     #TODO: Change this so it always gets 50 tracks
     log_mid = "spotify_matches"
@@ -549,7 +748,7 @@ def best_georgia(clean=False):
             min_pop = None
             tracks = get_popular(artist)
             for track in tracks:
-                if min_pop is None or track.viewCount < min_pop.viewCount:
+                if min_pop is None or track.lastViewedAt < min_pop.lastViewedAt:
                     min_pop = track
             print(f'{log_prefix}-{log_mid} Adding: {artist.title} - {track.title} views: {track.viewCount}')
             if min_pop is not None:
@@ -563,7 +762,7 @@ def best_georgia(clean=False):
     for artist_name in artists:
         limit = len(list) + 4
         for artist in artist_name:
-            results = music.search(libtype='track',filters={'artist.id': artist.ratingKey, 'track.userRating>>=': 8}, sort='track.viewCount:asc')
+            results = music.search(libtype='track',filters={'artist.id': artist.ratingKey, 'track.userRating>>=': 8}, sort='track.lastViewedAt:asc')
 
             for track in results:
                 if track is not None:
@@ -591,7 +790,7 @@ def best_georgia(clean=False):
             similar_artists = sorted(similar_artists, key=lambda tup: tup[0])
             limit = len(list) + 1
             for similar_artist in similar_artists:
-                similar_tracks_results = music.search(libtype='track', filters={'artist.id': similar_artist[1].ratingKey, 'track.userRating>>=': 8}, sort='track.viewCount:asc')
+                similar_tracks_results = music.search(libtype='track', filters={'artist.id': similar_artist[1].ratingKey, 'track.userRating>>=': 8}, sort='track.lastViewedAt:asc')
                 for track in similar_tracks_results:
                     if is_music(track) and (not clean or is_clean(track)) and contains_artist(list, track.grandparentTitle) == 0 and contains_track(list, track.title) == 0:
                         print(f'{log_prefix}-{log_mid} \t Adding: {track.grandparentTitle} - {track.title} views: {track.viewCount}')
@@ -644,6 +843,7 @@ def clean_string(str):
     result = result.replace('\'', '')
     result = result.replace('Hard-FI', 'Hard-Fi')
     result = result.replace('Party (feat. André 3000)', 'Party')
+    result = result.replace('a‐ha', 'a-ha')
     return result
 
 def tag_spotify_playlist():
@@ -695,7 +895,7 @@ def tag_popularity():
     sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=config['spotify_id'],
                                                             client_secret=config['spotify_secret']))
 
-    tracks = music.search(libtype='track', filters={'track.userRating>>=': 7, 'track.mood!=':['Pop:0', 'Pop:25', 'Pop:50', 'Pop:75', 'Pop:100']}, sort='track.userRating')
+    tracks = music.search(libtype='track', filters={'track.userRating>>=': 5, 'track.mood!=':['Pop:0', 'Pop:25', 'Pop:50', 'Pop:75', 'Pop:100']}, sort='track.userRating')
     for track in tracks:
         result = sp.search(q=f'artist:{track.grandparentTitle} track:{track.title}', type='track')
         if(len(result['tracks']['items'])>0):
@@ -712,56 +912,103 @@ def tag_popularity():
 def popular_songs(clean=False):
     log_prefix = 'popular'
     log_mid = 'na'
-
+    limit = 100
     tracklist = []
-    tracks = music.search(libtype='track', filters={'track.userRating>>=': 7, 'track.mood=':'Pop:100'}, sort='track.viewCount:asc')
+    tracks = music.search(libtype='track', filters={'track.userRating>>=': 5}, sort='track.ratingCount:desc', limit=1000)
+    tracks = sorted(tracks, key=lambda track: track.viewCount, reverse=True)
     for track in tracks:
         if is_music(track) and (not clean or is_clean(track)) and contains_track(tracklist, track.title) == 0 and contains_album(tracklist, track.parentTitle) == 0  and contains_artist(tracklist, track.grandparentTitle) < 2:
-            print(f'{log_prefix}-{log_mid} \t {track.grandparentTitle} {track.title}')
+            print(f'{log_prefix}-{log_mid} \t {track.grandparentTitle} {track.title} Popularity:{track.ratingCount} PlayCount:{track.viewCount}')
             tracklist.append(track)
-
+            if len(tracklist) >= limit:
+                break
     adjust_playlist(music, 'Popular Songs', tracklist)
+
+def find_split_albums():
+    log_prefix="merge_albums"
+
+    print('Find Split Albums')
+    results = music.search(libtype='album', sort='artist.titleSort:asc,titleSort:asc')
+    oldTitle = ""
+    for album in results:
+        if album.parentTitle is None:
+            continue
+        title = clean_string(album.title)
+        if title == oldTitle:
+            #we found two albums with the same name, but what if there are more?
+            if "," in title:
+                albums = music.search(libtype='album', filters={'album.title': clean_string(album.title), 'artist.id': album.parentRatingKey})
+            else:
+                albums = music.search(libtype='album', filters={'album.title=': clean_string(album.title), 'artist.id': album.parentRatingKey})
+            #check if they have the same path
+            tracks = music.search(libtype='track', filters={'album.id': album.ratingKey})
+            outer_path = "a"
+            outer_name = "a"
+            if len(tracks)> 0:
+                outer_path = pathlib.Path(tracks[0].locations[0]).parent
+                outer_name = pathlib.Path(tracks[0].locations[0]).name
+            else:
+                continue
+            for inner_album in albums:
+                if inner_album.ratingKey != album.ratingKey:
+                    inner_path = "b"
+                    inner_name = "b"
+                    tracks = music.search(libtype='track', filters={'album.id': inner_album.ratingKey})
+                    if len(tracks)> 0:
+                        inner_path = pathlib.Path(tracks[0].locations[0]).parent
+                        inner_name = pathlib.Path(tracks[0].locations[0]).name
+                    else:
+                        continue
+
+                    if inner_path == outer_path and inner_name != outer_name:
+                        print(f"Merging - {album.parentTitle} - {album.title}")
+                        album.merge([inner_album.ratingKey])
+
+        oldTitle = title
+
+def find_merged_albums():
+    log_prefix="unmerge_albums"
+
+    print('Find Over Merged Albums')
+    results = music.search(libtype='album', sort='artist.titleSort:asc,titleSort:asc')
+    for album in tqdm(results):
+        tracks = music.search(libtype='track', filters={'album.id': album.ratingKey})
+        for track in tracks:
+            for inner_track in tracks:
+                if inner_track.title == track.title:
+                    if track.index==inner_track.index and track.parentIndex == inner_track.parentIndex:
+                        if track.ratingKey != inner_track.ratingKey:
+                            print(f"{album.parentTitle} - {album.title}")
+                            print()
+
+
+
 
 if __name__ == '__main__':
     plex = PlexServer(baseurl, token, timeout=200)
     music = plex.library.section('Music-beets')
+    #check_lyrics_one_off()
+    check_lyrics()
+    daily_listen(clean=True)
 
-    exists = False
-    title = 'test'
-    for playlist in music.playlists():
-        if playlist.title == title:
-            exists = True
-            break
-
-    results = music.search(libtype='artist')
-    for artist in results:
-            for track in artist.extras():
-                if exists:
-                    if track not in playlist.items():
-                        playlist.addItems(items=[track])
-                if not exists:
-                    playlist = music.createPlaylist(title, items=[track])
-                    exists = True
-
-    #get popularity of songs
-    tag_popularity()
     popular_songs()
-    
+    best_unrated()
+    daily_listen()
+    daily_listen(clean=True)
+    one_track_unrated_artist()
 
     #tag_spotify_playlist()
     #best_georgia(clean=False)
     #best_georgia(clean=True)
+    find_split_albums()
 
+    #get popularity of songs
+    #tag_popularity()
+    
     rate_albums()
     rate_artists()
 
-    best_unrated()
-    daily_listen()
-    daily_listen(clean=True)
-
     write_tags()
     read_tags()
-
-
-    one_track_unrated_artist()
-    check_lyrics()
+    find_merged_albums()
+    

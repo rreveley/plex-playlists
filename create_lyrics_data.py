@@ -6,7 +6,7 @@ import train_model
 import spacy
 from spacy_fastlang import LanguageDetector
 
-root_dir = 'Y:\\'
+root_dir = '/mnt/media/music-beets/'
 data_file_full = 'data/lyrics_data_full.csv'
 data_file = 'data/lyrics_data.csv'
 

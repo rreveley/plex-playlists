@@ -10,3 +10,6 @@ plex-playlists.sh.noredirect
 venv/
 conf/
 .cachedir/
+temp.json
+.vscode/launch.json
+/log/
